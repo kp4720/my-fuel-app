@@ -1,0 +1,1127 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; img-src 'self' data:;">
+    <title>My Fuel App</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.21.0/dist/xlsx.full.min.js" integrity="sha256-Jg2y4JMI/2fQ0qL6ZLuWCR8vQ0t1r7Y0G2J9N8KXjhk=" crossorigin="anonymous" onerror="loadXLSXFallback()"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" integrity="sha256-34lBGuuC4lTKGU6fujCUPx6pNnm7M3uWovcC8E48TyI=" crossorigin="anonymous" onload="initializeJSPDFLibraries()" onerror="loadJSPDFFallback()"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+        h2, h3 {
+            color: #444;
+            margin-bottom: 10px;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+        select, input, button {
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .default-btn {
+            background-color: #28a745;
+        }
+        .default-btn:hover {
+            background-color: #218838;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
+        }
+        .edit-btn {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .edit-btn:hover {
+            background-color: #0056b3;
+        }
+        .fuel-log-btn {
+            background-color: #ff6200;
+        }
+        .fuel-log-btn:hover {
+            background-color: #cc4e00;
+        }
+        .add-new-vehicle-btn {
+            background-color: #17a2b8;
+        }
+        .add-new-vehicle-btn:hover {
+            background-color: #138496;
+        }
+        .vehicle-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .export-csv-btn {
+            background-color: #ffc107;
+            color: #333;
+        }
+        .export-csv-btn:hover {
+            background-color: #e0a800;
+        }
+        .disabled-btn {
+            background-color: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .disabled-btn:hover {
+            background-color: #ccc;
+        }
+        #vehicleForm, #editFuelForm {
+            display: none;
+        }
+        #editFuelForm {
+            margin-top: 20px;
+        }
+        #editFuelForm button {
+            margin-right: 10px;
+        }
+        .error-message {
+            color: red;
+            text-align: center;
+            padding: 10px;
+            display: none;
+        }
+        .no-data {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .scrollable-table {
+            max-height: 300px;
+            overflow-y: auto;
+            display: block;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            color: #333;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .total-row {
+            font-weight: bold;
+            background-color: #e9ecef;
+        }
+        .logo {
+            display: block;
+            max-width: 150px;
+            height: auto;
+            margin: 0 auto 20px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+        .modal-content h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .modal-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 120px;
+        }
+        .confirm-btn {
+            background-color: #dc3545;
+            color: #fff;
+        }
+        .confirm-btn:hover {
+            background-color: #c82333;
+        }
+        .cancel-btn {
+            background-color: #6c757d;
+            color: #fff;
+        }
+        .cancel-btn:hover {
+            background-color: #5a6268;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="logo.png" alt="My Fuel Fuel Up Tracker Logo" class="logo">
+        <div class="error-message" id="errorMessage"></div>
+        <div class="section">
+            <a href="privacy.html">Privacy Policy</a>
+        </div>
+
+        <!-- Vehicle Selection -->
+        <div class="section">
+            <h2>Select Vehicle</h2>
+            <select id="vehicleSelect" onchange="selectVehicle()">
+                <!-- Options populated by JavaScript -->
+            </select>
+            <div class="vehicle-buttons">
+                <button id="setDefaultBtn" class="default-btn" onclick="setDefaultVehicle()">Set as Default</button>
+                <button id="deleteVehicleBtn" class="delete-btn" onclick="deleteVehicle()">Delete Vehicle</button>
+            </div>
+        </div>
+
+        <!-- Add New Vehicle -->
+        <div class="section">
+            <h2>Add New Vehicle</h2>
+            <button class="add-new-vehicle-btn" onclick="toggleVehicleForm()">Add New Vehicle</button>
+            <div id="vehicleForm">
+                <input type="text" id="newVehicleName" placeholder="Vehicle Name">
+                <input type="number" id="startingMileage" placeholder="Starting Mileage" step="0.1">
+                <button onclick="addVehicle()">Add Vehicle</button>
+            </div>
+        </div>
+
+        <!-- Fuel Entry Form -->
+        <div class="section">
+            <h2>Add Fuel Entry</h2>
+            <input type="date" id="entryDate">
+            <input type="number" id="costPerGallon" placeholder="Cost per Gallon ($)" step="0.001">
+            <input type="number" id="gallonsFilled" placeholder="Gallons Filled" step="0.001">
+            <input type="number" id="mpg" placeholder="MPG" step="0.1">
+            <input type="number" id="tripMiles" placeholder="Trip Miles" step="0.1">
+            <button id="addFuelEntryBtn" onclick="addFuelEntry()">Add Fuel Entry</button>
+            <button class="fuel-log-btn" onclick="toggleFuelLog()">Fuel Log</button>
+        </div>
+
+        <!-- Fuel Log -->
+        <div class="section" id="fuelLog">
+            <h2 id="fuelLogTitle">Fuel Log</h2>
+            <select id="fuelLogVehicleSelect" onchange="selectFuelLogVehicle()">
+                <!-- Options populated by JavaScript -->
+            </select>
+            <div id="editFuelForm" style="display: none;">
+                <h3>Edit Fuel Entry</h3>
+                <input type="hidden" id="editEntryId">
+                <input type="date" id="editEntryDate">
+                <input type="number" id="editCostPerGallon" placeholder="Cost per Gallon ($)" step="0.001">
+                <input type="number" id="editGallonsFilled" placeholder="Gallons Filled" step="0.001">
+                <input type="number" id="editMpg" placeholder="MPG" step="0.1">
+                <input type="number" id="editTripMiles" placeholder="Trip Miles" step="0.1">
+                <button onclick="saveFuelEntryEdit()">Save Changes</button>
+                <button onclick="cancelFuelEntryEdit()">Cancel</button>
+            </div>
+            <div class="scrollable-table" id="fuelTableContainer">
+                <table id="fuelTable">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Cost/Gallon</th>
+                            <th>Gallons</th>
+                            <th>Total Cost</th>
+                            <th>MPG</th>
+                            <th>Trip Miles</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fuelTableBody"></tbody>
+                    <tfoot id="fuelTableFoot"></tfoot>
+                </table>
+            </div>
+            <div id="noDataMessage" class="no-data" style="display: none;">
+                No fuel entries available. Add entries above.
+            </div>
+            <div class="export-buttons">
+                <button class="export-csv-btn" onclick="exportToCSV()">Export to CSV</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="modal">
+        <div class="modal-content">
+            <h3>Confirm Deletion</h3>
+            <p id="deleteModalMessage"></p>
+            <div class="modal-buttons">
+                <button id="modalConfirmBtn" class="modal-btn confirm-btn">Confirm</button>
+                <button id="modalCancelBtn" class="modal-btn cancel-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let vehicles = [];
+        let selectedVehicleId = null;
+        let selectedFuelLogVehicleId = null;
+
+        // Initialize jsPDF and jspdf-autotable libraries
+        function initializeJSPDFLibraries() {
+            console.log('jsPDF loaded, initializing jspdf-autotable');
+            if (window.jspdf && window.jspdf.jsPDF) {
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js';
+                script.integrity = 'sha256-XODbW69O3D2jUc90p1Jp7iV3T2bW/HsB3qL3rO8W+HY=';
+                script.crossOrigin = 'anonymous';
+                script.onload = () => {
+                    console.log('jspdf-autotable loaded successfully');
+                    verifyLibraryLoad();
+                };
+                script.onerror = () => {
+                    console.log('Primary jspdf-autotable CDN failed, attempting fallback');
+                    loadJSPDFAutoTableFallback();
+                };
+                document.head.appendChild(script);
+            } else {
+                console.error('jsPDF not available, retrying initialization');
+                loadJSPDFFallback();
+            }
+        }
+
+        // Fallback for SheetJS CDN
+        function loadXLSXFallback() {
+            console.log('Primary SheetJS CDN failed, attempting fallback');
+            const fallbackScript = document.createElement('script');
+            fallbackScript.src = 'https://unpkg.com/xlsx@0.21.0/dist/xlsx.full.min.js';
+            fallbackScript.integrity = 'sha256-Jg2y4JMI/2fQ0qL6ZLuWCR8vQ0t1r7Y0G2J9N8KXjhk=';
+            fallbackScript.crossOrigin = 'anonymous';
+            fallbackScript.onerror = () => {
+                console.error('Fallback SheetJS CDN also failed');
+                showError('Failed to load SheetJS library from both sources. Please check your internet connection.');
+            };
+            document.head.appendChild(fallbackScript);
+        }
+
+        // Fallback for jsPDF CDN
+        function loadJSPDFFallback() {
+            console.log('Primary jsPDF CDN failed, attempting fallback');
+            const fallbackScript = document.createElement('script');
+            fallbackScript.src = 'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js';
+            fallbackScript.integrity = 'sha256-34lBGuuC4lTKGU6fujCUPx6pNnm7M3uWovcC8E48TyI=';
+            fallbackScript.crossOrigin = 'anonymous';
+            fallbackScript.onload = () => {
+                console.log('Fallback jsPDF loaded, initializing jspdf-autotable');
+                initializeJSPDFLibraries();
+            };
+            fallbackScript.onerror = () => {
+                console.error('Fallback jsPDF CDN also failed');
+                showError('Failed to load jsPDF library from both sources. Please check your internet connection.');
+            };
+            document.head.appendChild(fallbackScript);
+        }
+
+        // Fallback for jspdf-autotable CDN
+        function loadJSPDFAutoTableFallback() {
+            console.log('Attempting jspdf-autotable fallback load');
+            const fallbackScript = document.createElement('script');
+            fallbackScript.src = 'https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js';
+            fallbackScript.integrity = 'sha256-XODbW69O3D2jUc90p1Jp7iV3T2bW/HsB3qL3rO8W+HY=';
+            fallbackScript.crossOrigin = 'anonymous';
+            fallbackScript.onload = () => {
+                console.log('jspdf-autotable fallback loaded successfully');
+                verifyLibraryLoad();
+            };
+            fallbackScript.onerror = () => {
+                console.error('Fallback jspdf-autotable CDN also failed');
+                showError('Failed to load jspdf-autotable library from both sources. Please check your internet connection.');
+            };
+            document.head.appendChild(fallbackScript);
+        }
+
+        // Verify library load and handle initialization
+        function verifyLibraryLoad() {
+            if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.prototype.autoTable) {
+                console.log('All jsPDF libraries loaded successfully');
+            } else {
+                console.warn('jspdf-autotable not fully loaded, retrying initialization');
+                setTimeout(initializeJSPDFLibraries, 1000); // Retry after 1 second
+            }
+        }
+
+        // Initialize on DOM ready
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                initializeApp();
+            } catch (e) {
+                showError('Initialization failed: ' + e.message);
+            }
+        });
+
+        function showError(message) {
+            const errorMessage = document.getElementById('errorMessage');
+            if (errorMessage) {
+                errorMessage.textContent = message;
+                errorMessage.style.display = 'block';
+                setTimeout(() => {
+                    errorMessage.style.display = 'none';
+                }, 5000);
+            }
+            console.error(message);
+        }
+
+        function initializeApp() {
+            console.log('Starting initialization of index.html');
+
+            // Check localStorage availability
+            try {
+                const testKey = '__test__';
+                localStorage.setItem(testKey, testKey);
+                localStorage.removeItem(testKey);
+            } catch (e) {
+                throw new Error('localStorage is not available. Please disable private browsing or use a different browser.');
+            }
+
+            // Validate DOM elements
+            const requiredElements = [
+                'vehicleSelect',
+                'fuelLogVehicleSelect',
+                'newVehicleName',
+                'startingMileage',
+                'entryDate',
+                'costPerGallon',
+                'gallonsFilled',
+                'mpg',
+                'tripMiles',
+                'fuelLogTitle',
+                'fuelTableBody',
+                'fuelTableFoot',
+                'noDataMessage',
+                'editEntryId',
+                'editEntryDate',
+                'editCostPerGallon',
+                'editGallonsFilled',
+                'editMpg',
+                'editTripMiles',
+                'addFuelEntryBtn',
+                'setDefaultBtn',
+                'deleteVehicleBtn',
+                'deleteModal',
+                'deleteModalMessage',
+                'modalConfirmBtn',
+                'modalCancelBtn'
+            ];
+            for (const id of requiredElements) {
+                if (!document.getElementById(id)) {
+                    throw new Error(`DOM element missing: ${id}`);
+                }
+            }
+
+            // Load and validate localStorage
+            try {
+                const storedVehicles = localStorage.getItem('vehicles');
+                vehicles = storedVehicles ? JSON.parse(storedVehicles) : [];
+                if (!Array.isArray(vehicles)) {
+                    vehicles = [];
+                    console.warn('Invalid vehicles data, resetting to empty array');
+                }
+            } catch (e) {
+                vehicles = [];
+                console.warn('Error parsing vehicles from localStorage:', e.message);
+            }
+
+            selectedVehicleId = parseInt(localStorage.getItem('selectedVehicleId')) || vehicles.find(v => v.isDefault)?.id || vehicles[0]?.id || null;
+            selectedFuelLogVehicleId = selectedVehicleId;
+            console.log('Initialized, vehicles:', vehicles, 'selectedVehicleId:', selectedVehicleId, 'selectedFuelLogVehicleId:', selectedFuelLogVehicleId);
+
+            // Check if libraries loaded
+            setTimeout(() => {
+                if (!window.XLSX) {
+                    console.warn('SheetJS library not loaded after initialization');
+                } else {
+                    console.log('SheetJS library loaded successfully');
+                }
+                if (!window.jspdf || !window.jspdf.jsPDF) {
+                    console.warn('jsPDF library not loaded after initialization');
+                } else {
+                    console.log('jsPDF library loaded successfully');
+                }
+                if (!window.jspdf || !window.jspdf.jsPDF.prototype.autoTable) {
+                    console.warn('jspdf-autotable library not loaded after initialization');
+                } else {
+                    console.log('jspdf-autotable library loaded successfully');
+                }
+            }, 5000);
+
+            updateVehicleSelect();
+            updateFuelLogVehicleSelect();
+            updateFuelLog();
+            updateButtonStates();
+
+            const entryDate = document.getElementById('entryDate');
+            if (entryDate) {
+                entryDate.value = new Date().toISOString().split('T')[0];
+            }
+        }
+
+        function updateButtonStates() {
+            console.log('Updating button states, vehicles length:', vehicles.length);
+            const addFuelEntryBtn = document.getElementById('addFuelEntryBtn');
+            const setDefaultBtn = document.getElementById('setDefaultBtn');
+            const deleteVehicleBtn = document.getElementById('deleteVehicleBtn');
+            if (vehicles.length === 0) {
+                addFuelEntryBtn.classList.add('disabled-btn');
+                addFuelEntryBtn.disabled = true;
+                setDefaultBtn.classList.add('disabled-btn');
+                setDefaultBtn.disabled = true;
+                deleteVehicleBtn.classList.add('disabled-btn');
+                deleteVehicleBtn.disabled = true;
+            } else {
+                addFuelEntryBtn.classList.remove('disabled-btn');
+                addFuelEntryBtn.disabled = false;
+                setDefaultBtn.classList.remove('disabled-btn');
+                setDefaultBtn.disabled = false;
+                deleteVehicleBtn.classList.remove('disabled-btn');
+                deleteVehicleBtn.disabled = false;
+            }
+        }
+
+        function saveVehicles() {
+            try {
+                console.log('Saving vehicles');
+                localStorage.setItem('vehicles', JSON.stringify(vehicles));
+                localStorage.setItem('selectedVehicleId', selectedVehicleId || '');
+                console.log('Saved vehicles:', vehicles, 'selectedVehicleId:', selectedVehicleId);
+                updateVehicleSelect();
+                updateFuelLogVehicleSelect();
+                updateFuelLog();
+                updateButtonStates();
+            } catch (e) {
+                showError('Error saving vehicles: ' + e.message);
+            }
+        }
+
+        function updateVehicleSelect() {
+            try {
+                console.log('Updating vehicle select');
+                const select = document.getElementById('vehicleSelect');
+                if (!select) throw new Error('Vehicle select element not found');
+                select.innerHTML = vehicles.length ? vehicles.map(v => 
+                    `<option value="${v.id}" ${v.id === selectedVehicleId ? 'selected' : ''}>
+                        ${v.name} ${v.isDefault ? '(Default)' : ''}
+                    </option>`
+                ).join('') : '<option value="">No vehicles added</option>';
+                console.log('Updated vehicle select');
+            } catch (e) {
+                showError('Error updating vehicle select: ' + e.message);
+            }
+        }
+
+        function updateFuelLogVehicleSelect() {
+            try {
+                console.log('Updating fuel log vehicle select');
+                const select = document.getElementById('fuelLogVehicleSelect');
+                if (!select) throw new Error('Vehicle select element not found');
+                select.innerHTML = vehicles.length ? vehicles.map(v => 
+                    `<option value="${v.id}" ${v.id === selectedFuelLogVehicleId ? 'selected' : ''}>
+                        ${v.name} ${v.isDefault ? '(Default)' : ''}
+                    </option>`
+                ).join('') : '<option value="">No vehicles added</option>';
+                console.log('Updated fuel log vehicle select');
+            } catch (e) {
+                showError('Error updating fuel log vehicle select: ' + e.message);
+            }
+        }
+
+        function selectVehicle() {
+            try {
+                console.log('Button clicked: selectVehicle');
+                const select = document.getElementById('vehicleSelect');
+                if (!select) throw new Error('Vehicle select element not found');
+                selectedVehicleId = parseInt(select.value) || null;
+                console.log('Selected vehicle ID:', selectedVehicleId);
+                saveVehicles();
+            } catch (e) {
+                showError('Error selecting vehicle: ' + e.message);
+            }
+        }
+
+        function selectFuelLogVehicle() {
+            try {
+                console.log('Button clicked: selectFuelLogVehicle');
+                const select = document.getElementById('fuelLogVehicleSelect');
+                if (!select) throw new Error('Fuel log vehicle select element not found');
+                selectedFuelLogVehicleId = parseInt(select.value) || null;
+                console.log('Selected fuel log vehicle ID:', selectedFuelLogVehicleId);
+                updateFuelLog();
+            } catch (e) {
+                showError('Error selecting fuel log vehicle: ' + e.message);
+            }
+        }
+
+        function setDefaultVehicle() {
+            try {
+                console.log('Button clicked: setDefaultVehicle');
+                if (!selectedVehicleId) {
+                    console.log('No vehicle selected for default');
+                    showError('No vehicle selected to set as default');
+                    return;
+                }
+                vehicles = vehicles.map(v => ({
+                    ...v,
+                    isDefault: v.id === selectedVehicleId
+                }));
+                console.log('Set default vehicle:', selectedVehicleId);
+                saveVehicles();
+            } catch (e) {
+                showError('Error setting default vehicle: ' + e.message);
+            }
+        }
+
+        function showDeleteModal(vehicleName) {
+            console.log('Showing delete modal for vehicle:', vehicleName);
+            const modal = document.getElementById('deleteModal');
+            const message = document.getElementById('deleteModalMessage');
+            if (!modal || !message) {
+                showError('Modal elements not found');
+                return;
+            }
+            message.textContent = `Are you sure you want to delete "${vehicleName}" and all its fuel entries?`;
+            modal.style.display = 'flex';
+        }
+
+        function hideDeleteModal() {
+            console.log('Hiding delete modal');
+            const modal = document.getElementById('deleteModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        function deleteVehicle() {
+            try {
+                console.log('Button clicked: deleteVehicle', { selectedVehicleId, vehiclesLength: vehicles.length });
+                if (!vehicles.length) {
+                    console.log('No vehicles exist to delete');
+                    showError('No vehicles available to delete');
+                    return;
+                }
+                if (!selectedVehicleId) {
+                    console.log('No vehicle selected for deletion');
+                    showError('Please select a vehicle to delete');
+                    return;
+                }
+                const vehicle = vehicles.find(v => v.id === selectedVehicleId);
+                if (!vehicle) {
+                    console.log('Selected vehicle not found in vehicles array');
+                    showError('Selected vehicle not found');
+                    return;
+                }
+
+                showDeleteModal(vehicle.name);
+
+                const confirmBtn = document.getElementById('modalConfirmBtn');
+                const cancelBtn = document.getElementById('modalCancelBtn');
+
+                // Remove existing listeners to prevent duplicates
+                confirmBtn.replaceWith(confirmBtn.cloneNode(true));
+                cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+
+                // Re-select buttons after cloning
+                const newConfirmBtn = document.getElementById('modalConfirmBtn');
+                const newCancelBtn = document.getElementById('modalCancelBtn');
+
+                // Confirm deletion
+                newConfirmBtn.addEventListener('click', () => {
+                    console.log('Modal confirm clicked');
+                    vehicles = vehicles.filter(v => v.id !== selectedVehicleId);
+                    selectedVehicleId = vehicles[0]?.id || null;
+                    selectedFuelLogVehicleId = vehicles[0]?.id || null;
+                    console.log('Deleted vehicle:', vehicle.name);
+                    hideDeleteModal();
+                    saveVehicles();
+                    console.log('Post-deletion state:', { vehicles, selectedVehicleId, selectedFuelLogVehicleId });
+                });
+
+                // Cancel deletion
+                newCancelBtn.addEventListener('click', () => {
+                    console.log('Modal cancel clicked');
+                    console.log('Deletion cancelled by user');
+                    hideDeleteModal();
+                });
+            } catch (e) {
+                console.error('Error in deleteVehicle:', e.message, e.stack);
+                showError('Error deleting vehicle: ' + e.message);
+                hideDeleteModal();
+            }
+        }
+
+        function toggleVehicleForm() {
+            try {
+                console.log('Button clicked: toggleVehicleForm');
+                const vehicleForm = document.getElementById('vehicleForm');
+                if (!vehicleForm) throw new Error('Vehicle form element not found');
+                vehicleForm.style.display = vehicleForm.style.display === 'none' || vehicleForm.style.display === '' ? 'block' : 'none';
+                console.log('Toggled vehicle form to:', vehicleForm.style.display);
+            } catch (e) {
+                showError('Error toggling vehicle form: ' + e.message);
+            }
+        }
+
+        function toggleFuelLog() {
+            try {
+                console.log('Button clicked: toggleFuelLog');
+                const fuelLog = document.getElementById('fuelLog');
+                if (!fuelLog) throw new Error('Fuel log element not found');
+                fuelLog.style.display = fuelLog.style.display === 'none' || fuelLog.style.display === '' ? 'block' : 'none';
+                console.log('Toggled fuel log to:', fuelLog.style.display);
+            } catch (e) {
+                showError('Error toggling fuel log: ' + e.message);
+            }
+        }
+
+        function addVehicle() {
+            try {
+                console.log('Button clicked: addVehicle');
+                const nameInput = document.getElementById('newVehicleName');
+                const mileageInput = document.getElementById('startingMileage');
+                if (!nameInput || !mileageInput) throw new Error('Vehicle input elements not found');
+                const name = nameInput.value.trim();
+                const mileage = parseFloat(mileageInput.value);
+                if (!name || isNaN(mileage)) {
+                    console.log('Invalid vehicle data, name:', name, 'mileage:', mileage);
+                    showError('Please enter a valid vehicle name and mileage');
+                    return;
+                }
+
+                const newVehicle = {
+                    id: Date.now(),
+                    name,
+                    startingMileage: mileage,
+                    totalMileage: mileage,
+                    isDefault: vehicles.length === 0,
+                    fuelEntries: []
+                };
+                vehicles.push(newVehicle);
+                if (!selectedVehicleId) selectedVehicleId = newVehicle.id;
+                if (!selectedFuelLogVehicleId) selectedFuelLogVehicleId = newVehicle.id;
+                nameInput.value = '';
+                mileageInput.value = '';
+                document.getElementById('vehicleForm').style.display = 'none';
+                console.log('Added vehicle:', newVehicle);
+                saveVehicles();
+            } catch (e) {
+                showError('Error adding vehicle: ' + e.message);
+            }
+        }
+
+        function addFuelEntry() {
+            try {
+                console.log('Button clicked: addFuelEntry');
+                if (!vehicles.length) {
+                    console.log('No vehicles available to add fuel entry');
+                    showError('No vehicles available. Please add a vehicle first.');
+                    return;
+                }
+                const dateInput = document.getElementById('entryDate');
+                const costPerGallonInput = document.getElementById('costPerGallon');
+                const gallonsFilledInput = document.getElementById('gallonsFilled');
+                const mpgInput = document.getElementById('mpg');
+                const tripMilesInput = document.getElementById('tripMiles');
+                if (!dateInput || !costPerGallonInput || !gallonsFilledInput || !mpgInput || !tripMilesInput) {
+                    throw new Error('Fuel entry input elements not found');
+                }
+
+                const date = dateInput.value;
+                const costPerGallon = parseFloat(costPerGallonInput.value);
+                const gallonsFilled = parseFloat(gallonsFilledInput.value);
+                const mpg = parseFloat(mpgInput.value);
+                const tripMiles = parseFloat(tripMilesInput.value);
+
+                if (!date || isNaN(costPerGallon) || isNaN(gallonsFilled) || isNaN(mpg) || isNaN(tripMiles) || !selectedVehicleId) {
+                    console.log('Invalid fuel entry data:', { date, costPerGallon, gallonsFilled, mpg, tripMiles, selectedVehicleId });
+                    showError('Please fill all fuel entry fields');
+                    return;
+                }
+
+                const totalCost = (costPerGallon * gallonsFilled).toFixed(2);
+                const newEntry = {
+                    id: Date.now(),
+                    date,
+                    costPerGallon: costPerGallon.toFixed(3),
+                    gallonsFilled: gallonsFilled.toFixed(3),
+                    totalCost,
+                    mpg: mpg.toFixed(1),
+                    tripMiles: tripMiles.toFixed(1)
+                };
+
+                vehicles = vehicles.map(v => {
+                    if (v.id === selectedVehicleId) {
+                        return {
+                            ...v,
+                            totalMileage: v.totalMileage + tripMiles,
+                            fuelEntries: [...v.fuelEntries, newEntry]
+                        };
+                    }
+                    return v;
+                });
+
+                dateInput.value = new Date().toISOString().split('T')[0];
+                costPerGallonInput.value = '';
+                gallonsFilledInput.value = '';
+                mpgInput.value = '';
+                tripMilesInput.value = '';
+                console.log('Added fuel entry:', newEntry);
+                saveVehicles();
+            } catch (e) {
+                showError('Error adding fuel entry: ' + e.message);
+            }
+        }
+
+        function startEditFuelEntry(entryId) {
+            try {
+                console.log('Button clicked: startEditFuelEntry', entryId);
+                const selectedVehicle = vehicles.find(v => v.id === selectedFuelLogVehicleId);
+                if (!selectedVehicle) {
+                    showError('No vehicle selected');
+                    return;
+                }
+                const entry = selectedVehicle.fuelEntries.find(e => e.id === entryId);
+                if (!entry) {
+                    showError('Fuel entry not found');
+                    return;
+                }
+
+                document.getElementById('editEntryId').value = entryId;
+                document.getElementById('editEntryDate').value = entry.date;
+                document.getElementById('editCostPerGallon').value = entry.costPerGallon;
+                document.getElementById('editGallonsFilled').value = entry.gallonsFilled;
+                document.getElementById('editMpg').value = entry.mpg;
+                document.getElementById('editTripMiles').value = entry.tripMiles;
+
+                document.getElementById('editFuelForm').style.display = 'block';
+                document.getElementById('fuelTableContainer').style.display = 'none';
+                document.getElementById('noDataMessage').style.display = 'none';
+                console.log('Started editing fuel entry:', entry);
+            } catch (e) {
+                showError('Error starting fuel entry edit: ' + e.message);
+            }
+        }
+
+        function saveFuelEntryEdit() {
+            try {
+                console.log('Button clicked: saveFuelEntryEdit');
+                const entryId = parseInt(document.getElementById('editEntryId').value);
+                const date = document.getElementById('editEntryDate').value;
+                const costPerGallon = parseFloat(document.getElementById('editCostPerGallon').value);
+                const gallonsFilled = parseFloat(document.getElementById('editGallonsFilled').value);
+                const mpg = parseFloat(document.getElementById('editMpg').value);
+                const tripMiles = parseFloat(document.getElementById('editTripMiles').value);
+
+                if (!date || isNaN(costPerGallon) || isNaN(gallonsFilled) || isNaN(mpg) || isNaN(tripMiles)) {
+                    console.log('Invalid edit fuel entry data:', { date, costPerGallon, gallonsFilled, mpg, tripMiles });
+                    showError('Please fill all fuel entry fields');
+                    return;
+                }
+
+                const selectedVehicle = vehicles.find(v => v.id === selectedFuelLogVehicleId);
+                if (!selectedVehicle) {
+                    showError('No vehicle selected');
+                    return;
+                }
+
+                const oldEntry = selectedVehicle.fuelEntries.find(e => e.id === entryId);
+                if (!oldEntry) {
+                    showError('Fuel entry not found');
+                    return;
+                }
+
+                const mileageDiff = tripMiles - parseFloat(oldEntry.tripMiles);
+                const totalCost = (costPerGallon * gallonsFilled).toFixed(2);
+                const updatedEntry = {
+                    id: entryId,
+                    date,
+                    costPerGallon: costPerGallon.toFixed(3),
+                    gallonsFilled: gallonsFilled.toFixed(3),
+                    totalCost,
+                    mpg: mpg.toFixed(1),
+                    tripMiles: tripMiles.toFixed(1)
+                };
+
+                vehicles = vehicles.map(v => {
+                    if (v.id === selectedFuelLogVehicleId) {
+                        return {
+                            ...v,
+                            totalMileage: v.totalMileage + mileageDiff,
+                            fuelEntries: v.fuelEntries.map(e => e.id === entryId ? updatedEntry : e)
+                        };
+                    }
+                    return v;
+                });
+
+                document.getElementById('editFuelForm').style.display = 'none';
+                document.getElementById('fuelTableContainer').style.display = 'block';
+                console.log('Saved edited fuel entry:', updatedEntry);
+                saveVehicles();
+            } catch (e) {
+                showError('Error saving fuel entry edit: ' + e.message);
+            }
+        }
+
+        function cancelFuelEntryEdit() {
+            try {
+                console.log('Button clicked: cancelFuelEntryEdit');
+                document.getElementById('editFuelForm').style.display = 'none';
+                document.getElementById('fuelTableContainer').style.display = 'block';
+                updateFuelLog();
+                console.log('Cancelled fuel entry edit');
+            } catch (e) {
+                showError('Error cancelling fuel entry edit: ' + e.message);
+            }
+        }
+
+        function updateFuelLog() {
+            try {
+                console.log('Updating fuel log');
+                const selectedVehicle = vehicles.find(v => v.id === selectedFuelLogVehicleId);
+                const title = document.getElementById('fuelLogTitle');
+                const tbody = document.getElementById('fuelTableBody');
+                const tfoot = document.getElementById('fuelTableFoot');
+                const noDataMessage = document.getElementById('fuelTableFoot');
+                const editFuelForm = document.getElementById('editFuelForm');
+                const fuelTableContainer = document.getElementById('fuelTableContainer');
+
+                if (!title || !tbody || !tfoot || !noDataMessage || !editFuelForm || !fuelTableContainer) {
+                    throw new Error('Fuel log elements not found');
+                }
+
+                if (!vehicles.length) {
+                    title.textContent = 'Fuel Log';
+                    tbody.innerHTML = '';
+                    tfoot.innerHTML = '';
+                    noDataMessage.style.display = 'block';
+                    noDataMessage.textContent = 'No vehicles added. Add a vehicle above.';
+                    fuelTableContainer.style.display = 'block';
+                    editFuelForm.style.display = 'none';
+                    console.log('No vehicles available');
+                    return;
+                }
+
+                if (selectedVehicle && selectedVehicle.fuelEntries && selectedVehicle.fuelEntries.length) {
+                    title.textContent = `Fuel Log for ${selectedVehicle.name} (Total Mileage: ${selectedVehicle.totalMileage.toFixed(1)})`;
+                    tbody.innerHTML = selectedVehicle.fuelEntries.map(entry => `
+                        <tr>
+                            <td>${entry.date}</td>
+                            <td>$${entry.costPerGallon}</td>
+                            <td>${entry.gallonsFilled}</td>
+                            <td>$${entry.totalCost}</td>
+                            <td>${entry.mpg}</td>
+                            <td>${entry.tripMiles}</td>
+                            <td><button class="edit-btn" onclick="startEditFuelEntry(${entry.id})">Edit</button></td>
+                        </tr>
+                    `).join('');
+
+                    // Calculate totals
+                    const entries = selectedVehicle.fuelEntries;
+                    const costPerGallonAvg = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.costPerGallon), 0) / entries.length).toFixed(3) : '0.000';
+                    const gallonsSum = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.gallonsFilled), 0)).toFixed(3) : '0.000';
+                    const totalCostSum = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.totalCost), 0)).toFixed(2) : '0.00';
+                    const mpgAvg = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.mpg), 0) / entries.length).toFixed(1) : '0.0';
+                    const tripMilesSum = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.tripMiles), 0)).toFixed(1) : '0.0';
+
+                    tfoot.innerHTML = `
+                        <tr class="total-row">
+                            <td>Total</td>
+                            <td>$${costPerGallonAvg} (Avg)</td>
+                            <td>${gallonsSum} (Sum)</td>
+                            <td>$${totalCostSum} (Sum)</td>
+                            <td>${mpgAvg} (Avg)</td>
+                            <td>${tripMilesSum} (Sum)</td>
+                            <td></td>
+                        </tr>
+                    `;
+                    noDataMessage.style.display = 'none';
+                    if (editFuelForm.style.display !== 'block') {
+                        fuelTableContainer.style.display = 'block';
+                    }
+                    console.log('Updated fuel log for vehicle:', selectedVehicle.name, 'entries:', entries.length);
+                } else {
+                    title.textContent = 'Fuel Log';
+                    tbody.innerHTML = '';
+                    tfoot.innerHTML = '';
+                    noDataMessage.style.display = 'block';
+                    noDataMessage.textContent = selectedVehicle ? 'No fuel entries available. Add entries above.' : 'No vehicle selected. Add a vehicle above.';
+                    fuelTableContainer.style.display = 'block';
+                    editFuelForm.style.display = 'none';
+                    console.log('No fuel entries or vehicle selected');
+                }
+            } catch (e) {
+                showError('Error updating fuel log: ' + e.message);
+            }
+        }
+
+        function exportToCSV() {
+            try {
+                console.log('Button clicked: exportToCSV');
+                const selectedVehicle = vehicles.find(v => v.id === selectedFuelLogVehicleId);
+                if (!selectedVehicle || !selectedVehicle.fuelEntries?.length) {
+                    console.log('No data to export, vehicle:', selectedVehicle);
+                    showError('No fuel entries to export');
+                    return;
+                }
+
+                const entries = selectedVehicle.fuelEntries;
+                const headers = ['Date', 'Cost/Gallon', 'Gallons', 'Total Cost', 'MPG', 'Trip Miles'];
+                const rows = entries.map(entry => [
+                    entry.date,
+                    entry.costPerGallon,
+                    entry.gallonsFilled,
+                    entry.totalCost,
+                    entry.mpg,
+                    entry.tripMiles
+                ]);
+
+                // Calculate totals for the footer
+                const costPerGallonAvg = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.costPerGallon), 0) / entries.length).toFixed(3) : '0.000';
+                const gallonsSum = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.gallonsFilled), 0)).toFixed(3) : '0.000';
+                const totalCostSum = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.totalCost), 0)).toFixed(2) : '0.00';
+                const mpgAvg = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.mpg), 0) / entries.length).toFixed(1) : '0.0';
+                const tripMilesSum = entries.length ? (entries.reduce((sum, e) => sum + parseFloat(e.tripMiles), 0)).toFixed(1) : '0.0';
+
+                const totalRow = [
+                    'Total',
+                    `${costPerGallonAvg} (Avg)`,
+                    `${gallonsSum} (Sum)`,
+                    `${totalCostSum} (Sum)`,
+                    `${mpgAvg} (Avg)`,
+                    `${tripMilesSum} (Sum)`
+                ];
+
+                // Combine headers, rows, and total row
+                const csvContent = [
+                    headers,
+                    ...rows,
+                    totalRow
+                ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+
+                // Create and download the CSV file
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', `${selectedVehicle.name}_Fuel_Log.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                console.log('Exported CSV for vehicle:', selectedVehicle.name);
+            } catch (e) {
+                showError('Error exporting to CSV: ' + e.message);
+            }
+        }
+
+        // Handle script errors
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            const errorMsg = `Script error: ${msg} at ${url || 'index.html'}:${lineNo || 'unknown'}:${columnNo || 'unknown'}${error ? ' - ' + error.stack : ''}`;
+            showError(errorMsg);
+            console.error(errorMsg, {
+                navigator: navigator.userAgent,
+                localStorageKeys: Object.keys(localStorage),
+                timestamp: new Date().toISOString()
+            });
+            return false;
+        };
+    </script>
+</body>
+</html>
